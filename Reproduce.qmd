@@ -1,0 +1,180 @@
+---
+title: "Reproduce"
+format: pdf
+---
+
+```{r}
+library(dplyr)
+library(tidyverse)
+library(tidymodels)
+library(knitr)
+```
+
+# Covariates
+
+```{r}
+demographics = read.csv("data/raw/IMC01.csv")
+med_history <- read.csv("data/raw/IMC03.csv")
+severity = read.csv("data/raw/IMC12.csv")
+MHOWS = read.csv("data/raw/IMC13.csv") 
+enrollment = read.csv("data/raw/IMCENR.csv")
+
+demographics = demographics %>% select(PATIENT, AGE = Q2DATE, GENDER = Q1)
+
+med_history = med_history[, c("STUDY", "FORM", "SCREEN", "PATIENT", "STDYDAY", 
+                              "FORMCODE", "DATECOMP","Q25", "Q25AVG", "Q26", 
+                              "Q26A", "Q26B", "Q27","Q27_1A", "Q27_1B", 
+                              "Q27_1C", "Q27_1D","Q27_2A", "Q27_2B", "Q27_2C", 
+                              "Q27_2D","Q27_3A", "Q27_3B", "Q27_3C", "Q27_3D",
+                              "Q27_4A", "Q27_4B", "Q27_4C", "Q27_4D")]
+
+colnames(med_history) <- c("Study_Number", "Form_Number", "Screen", 
+                  "PATIENT", "Study_Day", "Form_Code", "Date_Comp", 
+                  "Patient_Smoke_Cigarettes_Now", "Avg_Number_Cigs_Per_Day",
+                  "Patient_Smoked_Cigs_for_at_least_one_year", 
+                  "Total_Number_Years_Smoked",
+                  "Highest_Avg_Number_Cigs_Per_Day", 
+                  "Patient_Use_or_Has_Used_Other_Tobacco_Products",
+                  "Cigar_Currently_Using", "Cigar_Avg_Num_Uses_Per_Day", 
+                  "Cigar_Total_Num_Years_Used", 
+                  "Cigar_Highest_Avg_Num_Uses_Per_Day",
+                  "Chew_Currently_Using", "Chew_Avg_Num_Uses_Per_Day", 
+                  "Chew_Total_Num_Years_Used", 
+                  "Chew_Highest_Avg_Num_Uses_Per_Day",
+                  "Snuff_Currently_Using", "Snuff_Avg_Num_Uses_Per_Day", 
+                  "Snuff_Total_Num_Years_Used", 
+                  "Snuff_Highest_Avg_Num_Uses_Per_Day",
+                  "Pipe_Currently_Using", "Pipe_Avg_Num_Uses_Per_Day", 
+                  "Pipe_Total_Num_Years_Used", 
+                  "Pipe_Highest_Avg_Num_Uses_Per_Day")
+
+med_history$DAILY_TOBACCO_USES <- apply(
+  med_history[, c("Highest_Avg_Number_Cigs_Per_Day", 
+                  "Cigar_Highest_Avg_Num_Uses_Per_Day", 
+                  "Chew_Highest_Avg_Num_Uses_Per_Day", 
+                  "Snuff_Highest_Avg_Num_Uses_Per_Day", 
+                  "Pipe_Highest_Avg_Num_Uses_Per_Day")],
+  1, 
+  function(x) {
+    x[is.na(x)] <- 0
+    return(sum(x))
+  })
+
+med_history = med_history %>% select(PATIENT, DAILY_TOBACCO_USES)
+
+
+severity = severity %>% 
+  mutate(OPIOD_DAYS = pmax(D3_DAYS, D4_DAYS, D5_DAYS)) %>% 
+  select(PATIENT, OPIOD_DAYS)
+
+MHOWS = MHOWS %>% filter(STDYDAY == 2) %>% 
+  select(PATIENT, BP_SYS_DAY2 = Q12SYS)
+
+enrollment = enrollment %>% select(PATIENT, CENTER, TREATMNT)
+
+covariates = inner_join(inner_join(inner_join(severity, 
+                                              demographics, by = "PATIENT"),
+                                   MHOWS, by = "PATIENT"), 
+                        enrollment, by = "PATIENT") %>% 
+  mutate(MALE = if_else(GENDER == 1, 1, 0),
+         LOFEXIDINE = if_else(TREATMNT == "LOFEXIDINE", 1, 0),
+         CENTER1 = if_else(CENTER == 733, 1, 0),
+         CENTER2 = if_else(CENTER == 162, 1, 0),
+         CENTER3 = if_else(CENTER == 1, 1, 0)) %>% 
+  select(PATIENT, AGE, MALE, OPIOD_DAYS, BP_SYS_DAY2, LOFEXIDINE, CENTER1, 
+         CENTER2, CENTER3) %>% 
+  left_join(med_history, by = "PATIENT")
+
+
+participants = enrollment$PATIENT
+
+write.csv(covariates, file = "data/processed/all_covariates.csv")
+```
+
+```{r}
+subset = covariates %>% 
+  select(PATIENT, AGE, DAILY_TOBACCO_USES, LOFEXIDINE)
+
+write.csv(subset, file = "data/processed/covariates.csv")
+
+```
+
+# Computing MHOWS
+
+# Model Fitting
+
+```{r}
+covariates <- read_csv("data/processed/covariates.csv")
+mhows1 <- read_csv("data/processed/mhows1.csv")
+mhows4 <- read_csv("data/processed/mhows4.csv")
+```
+
+```{r}
+mhows1_response <- mhows1 |>
+  inner_join(covariates, by = "PATIENT")
+```
+
+```{r}
+model1 <- lm(final_mhows ~ AGE + LOFEXIDINE + DAILY_TOBACCO_USES, data = mhows1_response) 
+kable(tidy(model1))
+```
+
+```{r}
+mhows4_response <- mhows4 |>
+  inner_join(covariates, by = "PATIENT")
+```
+
+```{r}
+model4 <- lm(final_mhows ~ AGE + LOFEXIDINE + DAILY_TOBACCO_USES, data = mhows4_response) 
+kable(tidy(model4))
+```
+
+# Results and Figures
+
+```{r}
+x = read.csv("data/processed/all_covariates.csv")
+
+
+table = x %>% group_by(LOFEXIDINE) %>% 
+  summarise(AGE = mean(AGE), OPIOD_USE = mean(OPIOD_DAYS),
+            PROP_MALE = mean(MALE), 
+            TOBACCO_USE = mean(DAILY_TOBACCO_USES), 
+            PROP_CENTER1 = mean(CENTER1), PROP_CENTER2 = mean(CENTER2), 
+            PROP_CENTER3 = mean(CENTER3),
+            BP = mean(BP_SYS_DAY2)) %>% 
+  mutate(Group = if_else(LOFEXIDINE == 0, "PLACEBO", "LOFEXIDINE")) %>% 
+  select(Group, AGE, OPIOD_USE, PROP_MALE, TOBACCO_USE, PROP_CENTER1, PROP_CENTER2, PROP_CENTER3, BP)
+
+totals = x %>% summarise(AGE = mean(AGE), OPIOD_USE = mean(OPIOD_DAYS),
+                         PROP_MALE = mean(MALE), 
+                         TOBACCO_USE = mean(DAILY_TOBACCO_USES), 
+                         PROP_CENTER1 = mean(CENTER1), PROP_CENTER2 = mean(CENTER2), 
+                         PROP_CENTER3 = mean(CENTER3),
+                         BP = mean(BP_SYS_DAY2)) %>% 
+  mutate(Group = "TOTAL") %>% 
+  select(Group, AGE, OPIOD_USE, PROP_MALE, TOBACCO_USE, PROP_CENTER1, PROP_CENTER2, PROP_CENTER3, BP)
+
+
+final = rbind(table, totals)
+
+kable(final)
+```
+
+```{r}
+x = inner_join(read.csv("data/processed/mhows1.csv"),
+           read.csv("data/processed/covariates.csv"),
+           by = "PATIENT") %>% 
+  mutate(treatment = if_else(LOFEXIDINE == 0, "PLACEBO", "TREATMENT"))
+
+ggplot(data = x, aes(y = final_mhows)) + 
+  geom_boxplot() + 
+  facet_wrap(~ treatment) +
+  scale_x_discrete(labels = NULL) + 
+  labs(y = "Day 5 Modified MHOWS Score", title = "Treament Effect", 
+       subtitle = "Lofexidine cohort has generally lower MHOWS scores",
+       x = "Treatment Group") + 
+  theme_bw()
+
+ggsave("boxplot_sbs.jpg", path = "figures", scale = 2, height = 2, width = 3)
+```
+

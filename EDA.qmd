@@ -1,0 +1,553 @@
+---
+title: "Exploratory Data Analysis"
+format: pdf
+---
+
+```{r}
+library(dplyr)
+library(tidyverse)
+library(tidymodels)
+```
+
+## Data Prep and Cleaning
+
+## Yash and Lisa
+
+```{r}
+rm(list = ls())
+```
+
+```{r}
+IMC13 <- read_csv("data/raw/IMC13.csv")
+IMC14 <- read_csv("data/raw/IMC14.csv")
+
+```
+
+```{r}
+IMC14 <- IMC14 |>
+  mutate(emesis = rowSums(!is.na(IMC14[, 10:18])))
+```
+
+```{r}
+mhows_prep <- IMC13 |>
+  select(PATIENT, STDYDAY, Q1, Q2, Q3, Q4, Q5, Q6, Q7, Q8A, Q8B, Q8C, Q9, Q10, Q11, Q12RES) |>
+  rename(yawning = Q1, lacrimation = Q2, rhinorrhea = Q3,
+         perspiration = Q4, tremor = Q5, gooseflesh = Q6,
+         restlessness = Q7, appetiteB = Q8A, appetiteL = Q8B, appetiteD = Q8C, pupil = Q9, weight = Q10, temp = Q11,
+         respiration = Q12RES)
+```
+
+```{r}
+mhows <- inner_join(mhows_prep, IMC14, by = c("PATIENT", "STDYDAY")) |>
+  select(-STUDY, -FORM, -CENTER, -NAMECODE, -DATECOMP, -SCREEN, -FORMCODE, 
+         -Q1, -Q2, -Q3, -Q4, -Q5, -Q6, -Q7, -Q8, -Q9, -Q10,
+         -Q11, -Q12, -Q13, -Q14, -Q15, -Q16, -Q17, -Q18, -CHECK_N) |>
+  filter(STDYDAY %in% c(1, 2, 5))
+```
+
+```{r}
+mhows_rmna <- mhows[rowSums(is.na(mhows)) <= 5, ]
+mhows_rmna
+```
+
+```{r}
+mhows_rmna <- mhows_rmna |>
+  mutate(emesis_val = case_when(
+    emesis == 0 ~ 0,
+    emesis == 1 ~ 5,
+    emesis == 2 ~ 10,
+    emesis >= 3 ~ 15,
+    TRUE ~ F
+  ))
+
+
+mhows_rmna <- mhows_rmna |>
+  mutate(yawning_val = case_when(
+    yawning == 1 ~ 0,
+    yawning == 2 ~ 1,
+    TRUE ~ F
+  ),
+  lac_val = case_when(
+    lacrimation == 1 ~ 0,
+    lacrimation == 2 ~ 1,
+    TRUE ~ F
+  ),
+  rhino_val = case_when(
+    rhinorrhea == 1 ~ 0,
+    rhinorrhea == 2 ~ 1,
+    TRUE ~ F
+  ),
+  persp_val = case_when(
+    perspiration == 1 ~ 0,
+    perspiration == 2 ~ 1,
+    TRUE ~ F
+  ),
+  tremor_val = case_when(
+    tremor == 1 ~ 0,
+    tremor == 2 ~ 3,
+    TRUE ~ F
+  ),
+  goose_val = case_when(
+    gooseflesh == 1 ~ 0,
+    gooseflesh == 2 ~ 3,
+    TRUE ~ F
+  ),
+  restlness_val = case_when(
+    restlessness == 1 ~ 0,
+    restlessness == 2 ~ 5,
+    TRUE ~ F
+  ))
+```
+
+```{r}
+## if either appetite B, L, or D are 3 or 4 and the other two are NA
+## OR if two of them are 3 or 4 and the other one is NA
+mhows_filled <- mhows_rmna |>
+  mutate(appetiteD = if_else(is.na(appetiteD) & appetiteB == 4 & appetiteL == 4, 
+                             appetiteD == 4, appetiteD),
+         appetiteL = if_else(is.na(appetiteL) & appetiteB == 3, 
+                             appetiteL == 3, appetiteL)) |>
+  mutate(pupil = if_else(is.na(pupil) & STDYDAY == 5, 
+                         pupil == round(mean(pupil, na.rm = TRUE), 1), pupil),
+         weight = if_else(is.na(weight) & STDYDAY == 5, 
+                          weight == round(mean(weight, na.rm = TRUE), 1), weight),
+         temp = if_else(is.na(temp) & STDYDAY == 5, 
+                          temp == round(mean(temp, na.rm = TRUE), 1), temp),
+         respiration = if_else(is.na(respiration) & STDYDAY == 5, 
+                          respiration == round(mean(respiration, na.rm = TRUE), 1), respiration))
+## filled in NA for pupil, weight, temp, respiration with average of day 5 values
+```
+
+```{r}
+## two separate dataframes, one with 1s and one with 4s imputed
+## sensitivity analysis 
+mhows_appetite1 <- mhows_filled |>
+  mutate(appetiteL = if_else(is.na(appetiteL) & appetiteB == 3, 
+                             1, appetiteL),
+         appetiteD = if_else(is.na(appetiteD) & appetiteB == 3, 
+                            1, appetiteD)) |>
+  filter(STDYDAY == 5)
+
+mhows_appetite4 <- mhows_filled |>
+  mutate(appetiteL = if_else(is.na(appetiteL) & appetiteB == 3, 
+                             4, appetiteL),
+         appetiteD = if_else(is.na(appetiteD) & appetiteB == 3, 
+                             4, appetiteD)) |>
+  filter(STDYDAY == 5)
+
+mhows_appetite4 |>
+  filter(PATIENT == 94813)
+```
+
+```{r}
+mhows_appetite1 <- mhows_appetite1 |>
+  mutate(anorexia_val = case_when(
+    appetiteB == 1 ~ 3,
+    appetiteB == 2 ~ 3,
+    appetiteL == 1 ~ 3,
+    appetiteL == 2 ~ 3, 
+    appetiteD == 1 ~ 3,
+    appetiteD == 2 ~ 3,
+    TRUE ~ 0
+  ),
+  temp_mhows = yawning_val + lac_val + rhino_val + persp_val + tremor_val + 
+    goose_val + restlness_val + emesis_val + anorexia_val)
+
+mhows_appetite4 <- mhows_appetite4 |>
+  mutate(anorexia_val = case_when(
+    appetiteB == 1 ~ 3,
+    appetiteB == 2 ~ 3,
+    appetiteL == 1 ~ 3,
+    appetiteL == 2 ~ 3, 
+    appetiteD == 1 ~ 3,
+    appetiteD == 2 ~ 3,
+    TRUE ~ 0
+  ),
+  temp_mhows = yawning_val + lac_val + rhino_val + persp_val + tremor_val + 
+    goose_val + restlness_val + emesis_val + anorexia_val)
+```
+
+```{r}
+write_csv(mhows_rmna, file = "data/processed/temp_mhows.csv")
+
+IMC13 |>
+  filter(PATIENT == 94813)
+```
+
+```{r}
+mhows_filledDay5 <- mhows_filled |>
+  group_by(PATIENT) |>
+  mutate(incDay5 = any(STDYDAY == 5)) |>
+  filter(incDay5) |>
+  group_by(PATIENT, STDYDAY) |>
+  mutate(n_obs = n():1) |>
+  filter(n_obs == 1) |>
+  ungroup()
+```
+
+```{r}
+mhows_pupil <-mhows_filledDay5 |>
+  select(PATIENT, STDYDAY, pupil) |>
+  pivot_wider(id_cols = PATIENT, names_from = STDYDAY, values_from = pupil, names_prefix = "Day") |>
+  mutate(pup_baseline = case_when(
+    is.na(Day1) & is.na(Day2) ~ NA_real_,
+    is.na(Day1) ~ Day2,
+    is.na(Day2) ~ Day1,
+    TRUE ~ (Day1 + Day2)/2
+  ),
+  Day5 = if_else(is.na(Day5), mean(Day5, na.rm = T), Day5),
+  pup_baseline = if_else(is.na(pup_baseline), mean(pup_baseline, na.rm = T), pup_baseline),
+  pup_increase = Day5 - pup_baseline,
+  pup_increase = if_else(pup_increase < 0, 0, pup_increase),
+  pup_val = pup_increase/0.1)
+
+
+```
+
+```{r}
+mhows_temperature <-mhows_filledDay5 |>
+  select(PATIENT, STDYDAY, temp) |>
+  pivot_wider(id_cols = PATIENT, names_from = STDYDAY, values_from = temp, names_prefix = "Day") |>
+  mutate(temp_baseline = case_when(
+    is.na(Day1) & is.na(Day2) ~ NA_real_,
+    is.na(Day1) ~ Day2,
+    is.na(Day2) ~ Day1,
+    TRUE ~ (Day1 + Day2)/2
+  ),
+  Day5 = if_else(is.na(Day5), mean(Day5, na.rm = T), Day5),
+  temp_baseline = if_else(is.na(temp_baseline), mean(temp_baseline, na.rm = T), temp_baseline),
+  temp_increase = Day5 - temp_baseline,
+  temp_increase = if_else(temp_increase < 0, 0, temp_increase),
+  temp_val = temp_increase/0.1)
+```
+
+```{r}
+mhows_resp <-mhows_filledDay5 |>
+  select(PATIENT, STDYDAY, respiration) |>
+  pivot_wider(id_cols = PATIENT, names_from = STDYDAY, values_from = respiration, names_prefix = "Day") |>
+  mutate(resp_baseline = case_when(
+    is.na(Day1) & is.na(Day2) ~ NA_real_,
+    is.na(Day1) ~ Day2,
+    is.na(Day2) ~ Day1,
+    TRUE ~ (Day1 + Day2)/2
+  ),
+  Day5 = if_else(is.na(Day5), mean(Day5, na.rm = T), Day5),
+  resp_baseline = if_else(is.na(resp_baseline), mean(resp_baseline, na.rm = T), resp_baseline),
+  resp_increase = Day5 - resp_baseline,
+  resp_increase = if_else(resp_increase < 0, 0, resp_increase),
+  resp_val = resp_increase)
+```
+
+```{r}
+mhows_weight <- mhows_filledDay5 |>
+  select(PATIENT, STDYDAY, weight) |>
+  pivot_wider(id_cols = PATIENT, names_from = STDYDAY, values_from = weight, names_prefix = "Day") |>
+  mutate(weight_baseline = case_when(
+    is.na(Day1) & is.na(Day2) ~ NA_real_,
+    is.na(Day2) ~ Day1,
+    TRUE ~ Day2
+  ),
+  Day5 = if_else(is.na(Day5), mean(Day5, na.rm = T), Day5),
+  weight_baseline = if_else(is.na(weight_baseline), mean(weight_baseline, na.rm = T), weight_baseline),
+  weight_decrease = weight_baseline - Day5,
+  weight_decrease = if_else(weight_decrease < 0, 0, weight_decrease),
+  weight_val = weight_decrease)
+```
+
+```{r}
+## appetite1 join
+mhows_appetite1 <- inner_join(mhows_appetite1, mhows_pupil, by = "PATIENT") |>
+  select(-Day1, -Day2, -Day5, -pup_baseline, -pup_increase)
+
+mhows_appetite1 <- inner_join(mhows_appetite1, mhows_resp, by = "PATIENT") |>
+  select(-Day1, -Day2, -Day5, -resp_baseline, -resp_increase)
+
+mhows_appetite1 <- inner_join(mhows_appetite1, mhows_temperature, by = "PATIENT") |>
+  select(-Day1, -Day2, -Day5, -temp_baseline, -temp_increase)
+
+mhows_appetite1 <- inner_join(mhows_appetite1, mhows_weight, by = "PATIENT") |>
+  select(-Day1, -Day2, -Day5, -weight_baseline, -weight_decrease)
+
+mhows_appetite1 <- mhows_appetite1 |>
+  mutate(final_mhows = yawning_val + lac_val + rhino_val + persp_val + tremor_val + 
+    goose_val + restlness_val + emesis_val + anorexia_val + pup_val + resp_val + 
+      temp_val + weight_val)
+
+mhows_appetite1
+```
+
+```{r}
+## appetite4 join
+mhows_appetite4 <- inner_join(mhows_appetite4, mhows_pupil, by = "PATIENT") |>
+  select(-Day1, -Day2, -Day5, -pup_baseline, -pup_increase)
+
+mhows_appetite4 <- inner_join(mhows_appetite4, mhows_resp, by = "PATIENT") |>
+  select(-Day1, -Day2, -Day5, -resp_baseline, -resp_increase)
+
+mhows_appetite4 <- inner_join(mhows_appetite4, mhows_temperature, by = "PATIENT") |>
+  select(-Day1, -Day2, -Day5, -temp_baseline, -temp_increase)
+
+mhows_appetite4 <- inner_join(mhows_appetite4, mhows_weight, by = "PATIENT") |>
+  select(-Day1, -Day2, -Day5, -weight_baseline, -weight_decrease)
+
+mhows_appetite4 <- mhows_appetite4 |>
+  mutate(final_mhows = yawning_val + lac_val + rhino_val + persp_val + tremor_val + 
+    goose_val + restlness_val + emesis_val + anorexia_val + pup_val + resp_val + 
+      temp_val + weight_val)
+
+mhows_appetite4
+```
+
+```{r}
+write_csv(mhows_appetite1, "data/processed/mhows1.csv")
+write_csv(mhows_appetite4, "data/processed/mhows4.csv")
+```
+
+## Kanthi
+
+```{r}
+MHOWS <- MHOWS |>
+  filter(STDYDAY == 2, PATIENT %in% participants) |>
+  select(patient = PATIENT, D2_SBP = Q12SYS, D2_DBP = Q12DIA) |>
+  mutate(BP_cat =
+    case_when(D2_SBP < 120 & D2_DBP < 80 ~ "normal",
+      D2_SBP >= 120 & D2_SBP <= 129 & D2_DBP < 80 ~ "elevated",
+      D2_SBP >= 130 & D2_SBP <= 139 | D2_DBP >= 80 & D2_DBP <= 89 ~ "high 1",
+      D2_SBP >= 140 & D2_SBP < 180 | D2_DBP >= 90 & D2_DBP < 120 ~ "high 2",
+      D2_SBP >= 180 | D2_DBP >= 120 ~ "hypertensive"
+    )
+  )
+
+```
+
+## Zakk
+
+```{r}
+library(dplyr)
+
+d1 <- read.csv("data/raw/IMC01.csv")
+
+# assuming Q2DATE represents age and Q3 represents gender (bad labels in data dictionary)
+age_gender_data <- d1 %>%
+  select(patient = PATIENT, age = Q2DATE, gender = Q3) %>%
+  mutate(gender = ifelse(gender == 1, "Male", "Female")) #1 Male, 2 Female
+
+head(age_gender_data)
+
+combined <- age_gender_data %>%
+  mutate(
+    age_group = cut(age, breaks = c(0, 20, 30, 40, 50, Inf), 
+                    labels = c("0-20", "21-30", "31-40", "41-50", "51+")),
+    age_gender = paste(age_group, gender, sep = "_")
+  )
+
+head(combined)
+
+demographic_groups_count <- combined %>%
+  group_by(age_gender) %>%
+  summarise(count = n()) %>%
+  arrange(desc(count))
+
+print(demographic_groups_count)
+
+min_age <- min(age_gender_data$age, na.rm = TRUE)
+max_age <- max(age_gender_data$age, na.rm = TRUE)
+
+cat("Lowest Age:", min_age, "\n")
+cat("Highest Age:", max_age, "\n")
+
+```
+
+```{r}
+all <- read.csv("data/raw/IMC03.csv")
+
+want <- c("STUDY", "FORM", "SCREEN", "PATIENT", "STDYDAY", "FORMCODE", "DATECOMP",
+                      "Q25", "Q25AVG", "Q26", "Q26A", "Q26B", "Q27",
+                      "Q27_1A", "Q27_1B", "Q27_1C", "Q27_1D",
+                      "Q27_2A", "Q27_2B", "Q27_2C", "Q27_2D",
+                      "Q27_3A", "Q27_3B", "Q27_3C", "Q27_3D",
+                      "Q27_4A", "Q27_4B", "Q27_4C", "Q27_4D")
+
+d2 <- all[, want]
+
+colnames(d2) <- c("Study_Number", "Form_Number", "Screen", "Patient_Number", "Study_Day", "Form_Code", "Date_Comp",
+                             "Patient_Smoke_Cigarettes_Now", "Avg_Number_Cigs_Per_Day",
+                             "Patient_Smoked_Cigs_for_at_least_one_year", "Total_Number_Years_Smoked",
+                             "Highest_Avg_Number_Cigs_Per_Day", "Patient_Use_or_Has_Used_Other_Tobacco_Products",
+                             "Cigar_Currently_Using", "Cigar_Avg_Num_Uses_Per_Day", "Cigar_Total_Num_Years_Used", "Cigar_Highest_Avg_Num_Uses_Per_Day",
+                             "Chew_Currently_Using", "Chew_Avg_Num_Uses_Per_Day", "Chew_Total_Num_Years_Used", "Chew_Highest_Avg_Num_Uses_Per_Day",
+                             "Snuff_Currently_Using", "Snuff_Avg_Num_Uses_Per_Day", "Snuff_Total_Num_Years_Used", "Snuff_Highest_Avg_Num_Uses_Per_Day",
+                             "Pipe_Currently_Using", "Pipe_Avg_Num_Uses_Per_Day", "Pipe_Total_Num_Years_Used", "Pipe_Highest_Avg_Num_Uses_Per_Day")
+
+d2$sum_highest_avg_uses_per_day <- apply(
+  d2[, c("Highest_Avg_Number_Cigs_Per_Day", "Cigar_Highest_Avg_Num_Uses_Per_Day", 
+         "Chew_Highest_Avg_Num_Uses_Per_Day", "Snuff_Highest_Avg_Num_Uses_Per_Day", 
+         "Pipe_Highest_Avg_Num_Uses_Per_Day")], 
+  1, 
+  function(x) {
+    x[is.na(x)] <- 0
+    return(sum(x))
+  }
+)
+
+```
+
+## Matt
+
+```{r}
+severity = read.csv("data/raw/IMC12.csv")
+enrollment = read.csv("data/raw/IMCENR.csv")
+demographics = read.csv("data/raw/IMC01.csv")
+MHOWS = read.csv("data/raw/IMC13.csv") 
+participants = enrollment$PATIENT
+
+severity = severity %>% 
+  mutate(OPIOD_DAYS = pmax(D3_DAYS, D4_DAYS, D5_DAYS)) %>% 
+  filter(PATIENT %in% participants) %>% 
+  select(PATIENT, OPIOD_DAYS)
+
+demographics = demographics %>% select(PATIENT, AGE = Q2DATE, GENDER = Q1) %>% 
+  filter(PATIENT %in% participants)
+
+MHOWS = MHOWS %>% filter(STDYDAY == 2, PATIENT %in% participants) %>% 
+  select(PATIENT, BP_SYS_DAY2 = Q12SYS)
+
+enrollment = enrollment %>% select(PATIENT, CENTER, TREATMNT)
+
+covariates = inner_join(inner_join(inner_join(severity, demographics, by = "PATIENT"), 
+           MHOWS, by = "PATIENT"), 
+           enrollment, by = "PATIENT")
+
+covariates = covariates %>% mutate(MALE = if_else(GENDER == 1, 1, 0),
+                      LOFEXIDINE = if_else(TREATMNT == "LOFEXIDINE", 1, 0),
+                      CENTER1 = if_else(CENTER == 733, 1, 0),
+                      CENTER2 = if_else(CENTER == 162, 1, 0),
+                      CENTER3 = if_else(CENTER == 1, 1, 0)) %>% 
+  select(PATIENT, AGE, MALE, OPIOD_DAYS, BP_SYS_DAY2, LOFEXIDINE, CENTER1, 
+         CENTER2, CENTER3)
+
+covariates <- covariates %>%
+  left_join(d2 %>% select(Patient_Number, sum_highest_avg_uses_per_day), by = c("PATIENT" = "Patient_Number"))
+
+write.csv(covariates, file = "data/processed/covariates.csv")
+```
+
+## Lisa
+
+```{r}
+IMC13 <- read_csv("data/raw/IMC13.csv")
+IMC14 <- read_csv("data/raw/IMC14.csv")
+
+```
+
+```{r}
+IMC14 <- IMC14 |>
+  mutate(emesis = rowSums(!is.na(IMC14[, 10:18])))
+```
+
+```{r}
+mhows_prep <- IMC13 |>
+  select(PATIENT, STDYDAY, Q1, Q2, Q3, Q4, Q5, Q6, Q7, Q8A, Q8B, Q8C, Q9, Q10, Q11, Q12RES) |>
+  rename(yawning = Q1, lacrimation = Q2, rhinorrhea = Q3,
+         perspiration = Q4, tremor = Q5, gooseflesh = Q6,
+         restlessness = Q7, appetiteB = Q8A, appetiteL = Q8B, appetiteD = Q8C, pupil = Q9, weight = Q10, temp = Q11,
+         respiration = Q12RES)
+```
+
+```{r}
+mhows <- inner_join(mhows_prep, IMC14, by = c("PATIENT", "STDYDAY")) |>
+  select(-STUDY, -FORM, -CENTER, -NAMECODE, -DATECOMP, -SCREEN, -FORMCODE, 
+         -Q1, -Q2, -Q3, -Q4, -Q5, -Q6, -Q7, -Q8, -Q9, -Q10,
+         -Q11, -Q12, -Q13, -Q14, -Q15, -Q16, -Q17, -Q18, -CHECK_N) |>
+  filter(STDYDAY %in% c(1, 2, 5))
+mhows
+```
+
+```{r}
+mhows_rmna <- mhows[rowSums(is.na(mhows)) <= 5, ]
+mhows_rmna
+```
+
+```{r}
+## if either appetite B, L, or D are 3 or 4 and the other two are NA
+## OR if two of them are 3 or 4 and the other one is NA
+mhows_filled <- mhows_rmna |>
+  mutate(appetiteD = if_else(is.na(appetiteD) & appetiteB == 4 & appetiteL == 4, 
+                             appetiteD == 4, appetiteD),
+         appetiteL = if_else(is.na(appetiteL) & appetiteB == 3, 
+                             appetiteL == 3, appetiteL)) |>
+  mutate(pupil = if_else(is.na(pupil) & STDYDAY == 5, 
+                         pupil == round(mean(pupil, na.rm = TRUE), 1), pupil),
+         weight = if_else(is.na(weight) & STDYDAY == 5, 
+                          weight == round(mean(weight, na.rm = TRUE), 1), weight),
+         temp = if_else(is.na(temp) & STDYDAY == 5, 
+                          temp == round(mean(temp, na.rm = TRUE), 1), temp),
+         respiration = if_else(is.na(respiration) & STDYDAY == 5, 
+                          respiration == round(mean(respiration, na.rm = TRUE), 1), respiration))
+## filled in NA for pupil, weight, temp, respiration with average of day 5 values
+```
+
+```{r}
+## if B=4 and L=4, D=4
+## if B=3, what are the other two missing? half are over 2 and half are under
+
+mhows_rmna |>
+  filter(appetiteB == 3, STDYDAY == 5)
+```
+
+```{r}
+## two separate dataframes, one with 1s and one with 4s imputed
+mhows_appetite1 <- mhows_filled |>
+  filter(STDYDAY == 5) |>
+  mutate(appetiteL = if_else(is.na(appetiteL) & appetiteB == 3, 
+                             appetiteL == 1, appetiteL),
+         appetiteD = if_else(is.na(appetiteD) & appetiteB == 3, 
+                             appetiteD == 1, appetiteD)) 
+
+mhows_appetite4 <- mhows_filled |>
+  filter(STDYDAY == 5) |>
+  mutate(appetiteL = if_else(is.na(appetiteL) & appetiteB == 3, 
+                             appetiteL == 4, appetiteL),
+         appetiteD = if_else(is.na(appetiteD) & appetiteB == 3, 
+                             appetiteD == 4, appetiteD)) 
+```
+
+```{r}
+mhows_appetite1 |>
+  filter(PATIENT == 94813)
+
+mhows_appetite4 |>
+  filter(PATIENT == 94813)
+```
+
+## Model Fitting
+
+```{r}
+rm(list = ls())
+```
+
+```{r}
+covariates <- read_csv("data/processed/covariates.csv")
+mhows1 <- read_csv("data/processed/mhows1.csv")
+mhows4 <- read_csv("data/processed/mhows4.csv")
+```
+
+```{r}
+mhows1_response <- mhows1 |>
+  inner_join(covariates, by = "PATIENT")
+```
+
+```{r}
+model1 <- lm(final_mhows ~ AGE + LOFEXIDINE + sum_highest_avg_uses_per_day, data = mhows1_response) 
+tidy(model1)
+```
+
+```{r}
+mhows4_response <- mhows4 |>
+  inner_join(covariates, by = "PATIENT")
+```
+
+```{r}
+model4 <- lm(final_mhows ~ AGE + LOFEXIDINE + sum_highest_avg_uses_per_day, data = mhows4_response) 
+tidy(model4)
+```

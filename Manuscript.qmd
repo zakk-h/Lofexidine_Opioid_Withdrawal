@@ -1,0 +1,134 @@
+---
+title: "Lofexidine and Opioid Withdrawal: Beyond the Impact of Blood Pressure"
+format: 
+  pdf:
+    document-class: report  
+    linenumbers: false
+    doublespacing: false
+author: 
+- name: Matthew O'Donnell
+- name: Kanthi Makineedi
+- name: Zakk Heile
+- name: Yash Singam
+- name: Lisa Zhang
+- name: Raphael Morsomme
+
+bibliography: test.bib
+---
+
+## Abstract
+
+Opioid addiction is a chronic condition in which stopping opioid use leads to severe withdrawal symptoms like nausea, vomiting, diarrhea, aches, or anxiety. These symptoms make it hard for people to quit, so managing them is crucial for successful treatment. A reference study by Yu et al. found Lofexidine was effective in mitigating withdrawal symptoms [@yu2008phase]. Because Lofexidine is known to lower blood pressure, we explore a potential oversight in Yu et al.'s study: Does Lofexidine reduce opioid withdrawal symptoms beyond its effect on lowering blood pressure? To address this question, we use datasets from Yu et al.'s study, choosing to modify an existing metric, MHOWS score, but excluding blood pressure from its calculation [@yu2008phase]. This includes over a dozen variables including yawning, restlessness, and vomiting. Given the small sample size, we perform careful imputation of missing data. We fit a model controlling for key covariates---age and tobacco use---using the base R function lm to obtain maximum likelihood estimates. The effect of Lofexidine on opioid withdrawal symptoms is not statistically significant at the significance level $0.05$. We further conduct a sensitivity analysis which shows that the effect of the imputation for appetite on the estimates is negligible. 
+
+## Introduction
+
+Opioid addiction is a chronic condition in which stopping opioid use leads to severe withdrawal symptoms like nausea, vomiting, diarrhea, aches, or anxiety. These symptoms make it hard for people to quit, so managing them is crucial for successful treatment. In the 1990s, many places in Europe approved the drug Lofexidine for managing opioid withdrawal symptoms, yet it was not approved in the United States until 2018 [@pergolizzi2019role]. A 2008 study sought to establish the efficacy of Lofexidine in mitigating opioid withdrawal symptoms in a controlled setting [@yu2008phase]. The study reported a statistically significant reduction in the Modified Himmelsbach Opiate Withdrawal Scale (MHOWS). However, it is known from previous studies that Lofexidine is an effective treatment for hypertension [@lopez1984comparative]. Since systolic blood pressure is a component of the MHOWS computation in Yu et al., this raises the question of whether Lofexidine significantly impacts opioid withdrawal symptoms beyond blood pressure. If blood pressure account for the majority of the decrease in withdrawal symptoms, there may be cheaper or safer alternative treatments that have the same effect. We build upon the 2008 study with a more robust analysis of Lofexidine's efficacy in managing opioid withdrawal. Our investigation utilizes the same patient data as the 2008 study. If our results prove to be statistically significant, there can be even more confidence in Lofexidine's efficacy. If the results are not significant, it could motivate a more expansive study into the treatment effect.
+
+## Data
+
+The data was derived from the reference study which included data from 68 patients enrolled across three different sites: Los Angeles, New York, and Philadelphia. 35 of these participants were in the treatment group and 33 in the placebo group. The participants of this study were 87% male, had an average age of 41 years, and had a history of opioid dependence (opioid use for at least 21 of the past 30 days). There is a plethora of data on the patients' backgrounds (demographics, medical history, smoking history, addiction severity, vital signs) and data collected during the study (withdrawal symptoms).
+
+
+## Methods
+
+Using datasets from Yu et al.'s study, we modify the MHOWS metric to exclude blood pressure and examine what factors affect symptoms beyond blood pressure. Due to the small sample size in the original study, we want to control for potential imbalances between treatment groups. In our model, we control for various covariates and consider many others that do not make it into the final model. We model the data using the following regression model:
+
+```{=tex}
+\begin{equation}
+\label{eq:model}
+y_i = \alpha + \beta z_i + \gamma^T x_i + \epsilon_i, \qquad i=1,2,\dots,n,
+\end{equation}
+```
+where $n=44$ is the sample size, $y_i$ is the MHOWS score of individual $i$, $z_i\in\{0,1\}$ is the treatment indicator of individual $i$ and takes on the value $0$ if the individual is in the control group and $1$ if the individual is in the treatment group, $x_i$ is a column vector of the two baseline covariates---age and tobacco use---of individual $i$, and $\epsilon_i$ is the error term of individual $i$. We assume $\epsilon_i \sim N(0, \sigma^2)$ independently across $i$, for some $\sigma^2 > 0$.
+The parameters of the model are the intercept $\alpha$, the treatment effect $\beta$, and the regression coefficients $\gamma \in R^2$. 
+We fit the model in R using the base R function lm which provides the maximum likelihood estimates.
+
+### Response Variable
+
+Our response variable is the modified MHOWS score without factoring in blood pressure. We compute the score in the same way as Yu et al. except with the single omission. We used to following formula for the metric:
+
+\begin{equation}
+\label{eq:response}
+y = \sum_{i=1}^{4} c_i + \sum_{j=1}^{4} d_j + 3 \sum_{k=5}^{7} d_k + 5 \sum_{l=8}^{11} d_l
+\end{equation}
+
+<!--
+$$y = d_1 + d_2 + d_3 + d_4 + 3d_5 + 3d_6 + 3d_7 + 5d_8 + 5d_9 + 5d_{10} + 5d_{11} + c_1 + c_2 + c_3 + c_4$$
+-->
+Each of the following factor are recorded daily:
+
+-   $d_1$: yawning observed
+-   $d_2$: lacrimation observed
+-   $d_3$: rhinorrhea observed
+-   $d_4$: perspiration observed
+-   $d_5$: tremor observed
+-   $d_6$: goose-flesh observed
+-   $d_7$: poor to no appetite for any meal
+-   $d_8$: restlessness observed
+-   $d_9$: first emesis observed
+-   $d_{10}$: second emesis observed
+-   $d_{11}$: third emesis observed
+-   $c_1$: number of 0.1mm increases in pupil dilation
+-   $c_2$: number of 0.1 degree C increases in temperature
+-   $c_3$: number of respirations per minute increase
+-   $c_4$: number of pounds lost
+
+The $d$ variables are discrete and the $c$ variables are continuous. All the values are non-negative. To maintain consistency with the original study, we use MHOWS calculations on Day 5 of the study as our primary outcome. Continuous signs of withdrawal are computed with the same baseline as used in the original study. We addressed missing values as follows: For anorexia, we used appetite scores for breakfast, lunch, and dinner to fill in missing values. If a patient had scores of 4 () for breakfast and lunch but was missing a dinner score, we replaced the missing value with the score that was most consistent among other patients with the same breakfast and lunch scores. If the cases were inconsistent, we created separate dataframes and imputed the values at both extremes (1 and 4) to assess the effect on the model. For continuous variables with missing values, we used the average of all other patients on day five. Day five represents a stable point in the withdrawal process where patients' symptoms are more predictable and less prone to variation. We opted to impute missing values instead of deleting observations primarily due to the small sample size. We believed that we could compute these values with reasonable precision, and that would be more favorable than deleting them. We justified this with a sensitivity analysis. Even if we chose all 1s, or all 4s (either extreme), the differences were minimal. MHOWS is composed of a large selection of variables, with only a subset of the data for those variables were missing. We determined that these missing values were caused by people leaving the study (how does this play into inputation, missing not at random).
+
+### Covariates
+
+Due to relatively small sample sizes in both treatment groups, we wanted to control for potential imbalances between the groups that could impact our results. We identified a list of covariates which we thought could impact the measured treatment effect if their was an imbalanace between the Lofexidine and placebo groups. We considered age, gender, opioid addiction severity, use of tobacco products, baseline blood pressure, and treatment site as potentially influential covariates.
+
+The table below shows the mean among the initial study participants for each potential covariate:
+
+| Covariate                         | Lofexidine | Placebo | Combined Cohort |
+|-----------------------------------|:----------:|:-------:|:---------------:|
+| **Age**                           |    42.0    |  40.5   |      41.3       |
+| \% Male                           |   88.6%    |  84.8%  |      86.8%      |
+| Opioid Use (Days last month)      |    29.4    |  29.2   |      29.3       |
+| **Tobacco Use (Uses per day)** |   19.43    |  19.48  |      19.46      |
+| Systolic BP (Day 2)               |   123.0    |  123.2  |      123.1      |
+| \% Center 1                       |   34.3%    |  33.3%  |      33.8%      |
+| \% Center 2                       |   25.7%    |  24.2%  |      25.0%      |
+| \% Center 3                       |   40.0%    |  42.4%  |      41.2%      |
+
+-   **Age**: We included age as a covariate in case older patients might experience withdrawal differently due to differences in organ health, metabolism, etc.
+
+-   **Gender**: We decided not to control for gender because of the disproportionately small number of women in the study. We thought this could lead to high variance in the coefficient estimate for gender, but we think this could be an important thing to analyze in future work.
+
+-   **Opioid Addiction Severity**: Our best estimate for opioid addiction severity is the number of days the patient used opioids in the past 30 days. Since the inclusion criteria for the study was 21 out of 30 days, there is very little variance among patients, and we therefore decided this would not be a worthy covariate for our model.
+
+-   **Tobacco Product Use**: Our estimator for tobacco use is the highest average number of tobacco products used per day. This was recorded for cigarettes, cigars, chew, snuff, and pipe, and we sum them in our variable. We include this covariate as there is more variability among patients and continued use could potentially impact withdrawal.
+
+-   **Baseline Blood Pressure**: We thought baseline blood pressure (estimated by blood pressure recorded on Day 2 of the study) could be influential since Lofexidine has previously been used as a drug for hypertension. However, since we have altered MHOWS by removing blood pressure, we no longer felt this was an important predictor.
+
+-   **Treatment Site**: Since patients at each treatment site was evenly split between treatment groups, we decided this would not have a significant effect on the outcome.
+
+### Imputation
+
+We discover various missing data points required for MHOWS computation. Because our sample size is limited, we favor data imputation. We impute the most extreme cases and fit separate models for each case to construct a plausible range.
+
+First, among the non-continuous variables that are factored into the MHOWS score, there were cases with missing data in the patients' appetite scores. Because we only need to know if one out of the three mealtime appetite scores is none or poor, corresponding to scores of 1 and 2, we only need to impute data in cases in which one score is a 3 or a 4 with the remaining 1 or 2 values missing. There are two cases that we must look at: one is a 4 for breakfast and a 4 for lunch with dinner missing, and the other is a 3 for breakfast with lunch and dinner missing. For the first case, we look at the existing patients who also have a score of 4 for both breakfast and lunch, and notice that they consistently have a 4 for dinner as well. Therefore, for the patients with 4s for breakfast and lunch and missing dinner, we reasonably impute the dinner values with 4. For the second case, we look at the existing patients who also have a score of 3 for breakfast. We notice that for half of those cases, the lunch and dinner scores are both 1 or 2, and for the other half, the lunch and dinner scores are both 3 and 4. Because there was no clear pattern for what values to fill in, we choose to perform a sensitivity analysis by imputing one case with 1s for lunch and dinner and one case with 4s for lunch and dinner. 
+
+For the continuous variables, we see a rampant case of missing data: all four variables (pupil dilation, respiration, temperature, and weight) had multiple missing values. Because of this consistency in missing values, we use the same imputation process for all variables. For patients with missing continuous values on day 5 of the study, we fill in those values with the mean of all existing values across other patients for that variable on day 5.
+
+## Discussion
+
+Figure 1 shows an initial visualization of the distribution of Day 5 MHOWS scores across the two groups. The figure provides some evidence that the treatment has the desired effect. The median and 75th quantile MHOWS scores for the Placebo group are higher than those in the Lofexidine group.
+
+![](figures/boxplot_sbs.jpg){fig-align="center" width=75%}
+
+To examine the significance of that effect, we fit our regression models. As previously discussed, we fit two separate models for the two extreme cases of data imputation for anorexia. Model 1 uses imputed values of 1, and Model 2 uses imputed values of 4. The two models appear to be very similar.
+
+Sensitivity Analysis (Model 1/Model 2):
+
+| Predictor       | M.L.E.  | p-value  |
+|------------|-----------|----------|
+| Intercept  | 5.505 / 5.343     | 0.829 / 0.834    |
+| Age        | 0.736 / 0.740     | 0.218 / 0.215    |
+| Lofexidine Treatment | -16.800 / -16.912   | **0.072 / 0.070**    |
+| Tobacco Use    | 0.359 / 0.358   | 0.349 / 0.350    |
+
+In both models, age and tobacco use are positively correlated with Day 5 MHOWS score, however neither is statistically significant. As expected based on Figure 1, there is a negative relationship between MHOWS and the Lofexidine treatment. With $p \approx 0.07$ for both models, there is some evidence that the treatment has the desired effect. However, when using a significance level of 0.05, there is not enough evidence to conclude that the regression estimate for LOFEXIDINE is non-zero. When comparing this result to that of the previous study, it seems that by excluding blood pressure from the MHOWS computation, we've reduced the significance of the effect of Lofexidine on the measured symptoms. This does not prove that Lofexidine is not efficacious, but proof of the alternative is beyond the power of the given sample. There is also a statistically significant difference in study drop-out rate between the two groups [@yu2008phase], which provides more evidence that this study was more unpleasant for the Placebo group than the Lofexidine group. However, this drop-out rate shrinks sample size even further and reduces the statistical power of the model. A subsequent study with a larger cohort and better patient retention could likely prove that Lofexidine is efficacious.
+
+## Bibliography
